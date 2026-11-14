@@ -16,6 +16,10 @@
 # Backup lokal
 backups/
 
+# File deploy privat (berisi kredensial)
+private-deploy/
+private-deploy.zip
+
 # Override lokal (bisa berisi kredensial DB)
 docker-compose.override.yml
 
