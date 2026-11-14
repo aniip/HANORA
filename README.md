@@ -83,10 +83,14 @@ Panduan lengkap: [docs/PRODUCTION.md](docs/PRODUCTION.md).
 
 ## Midtrans
 
-- Default contoh production/staging: **sandbox**.
-- Isi `MIDTRANS_MODE=sandbox`, `MIDTRANS_SERVER_KEY`, dan `MIDTRANS_CLIENT_KEY`.
+- Default development/demo: **simulation** (tidak memanggil Midtrans).
+- Untuk uji integrasi, ganti ke **sandbox** dan isi:
+  - `MIDTRANS_MODE=sandbox`
+  - `MIDTRANS_SERVER_KEY=SB-Mid-server-...`
+  - `MIDTRANS_CLIENT_KEY=SB-Mid-client-...`
 - Webhook: `https://<domain>/api/v1/webhooks/midtrans`.
 - Setelah siap go-live, ganti ke `MIDTRANS_MODE=production` dengan kredensial production.
+- Mode `simulation` **ditolak** saat `ASPNETCORE_ENVIRONMENT=Production`.
 
 Panduan: [docs/MIDTRANS_SETUP.md](docs/MIDTRANS_SETUP.md).
 
