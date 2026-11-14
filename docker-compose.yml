@@ -1,0 +1,94 @@
+name: hanora
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: hanora-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hanora}
+      POSTGRES_USER: ${POSTGRES_USER:-hanora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hanora_dev_password}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - hanora_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hanora-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-hanora};Username=${POSTGRES_USER:-hanora};Password=${POSTGRES_PASSWORD:-hanora_dev_password};Maximum Pool Size=20
+      Cors__AllowedOrigins__0: ${APP_ORIGIN:-http://localhost:8080}
+      Storage__UploadPath: /var/hanora/uploads
+      Jwt__Issuer: ${JWT_ISSUER:-hanora-api}
+      Jwt__Audience: ${JWT_AUDIENCE:-hanora-client}
+      Jwt__TableAudience: ${JWT_TABLE_AUDIENCE:-hanora-table}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-dev-only-hanora-signing-key-change-me-0123456789abcdef}
+      Jwt__AccessMinutes: ${JWT_ACCESS_MINUTES:-15}
+      Jwt__RefreshDays: ${REFRESH_TOKEN_DAYS:-7}
+      Jwt__TableSessionMinutes: ${TABLE_SESSION_MINUTES:-120}
+      App__BaseUrl: ${APP_BASE_URL:-http://localhost:8080}
+      Database__AutoMigrate: "true"
+      Database__Seed: "true"
+      DataProtection__KeysPath: /var/hanora/keys
+      RateLimiting__Enabled: ${RATE_LIMIT_ENABLED:-true}
+      Seed__OwnerEmail: ${SEED_OWNER_EMAIL:-}
+      Seed__OwnerPassword: ${SEED_OWNER_PASSWORD:-}
+      Midtrans__Mode: ${MIDTRANS_MODE:-simulation}
+      Midtrans__ServerKey: ${MIDTRANS_SERVER_KEY:-}
+      Midtrans__ClientKey: ${MIDTRANS_CLIENT_KEY:-}
+      Midtrans__MerchantId: ${MIDTRANS_MERCHANT_ID:-}
+      Midtrans__SnapUrl: ${MIDTRANS_SNAP_URL:-}
+      Midtrans__QrisEnabled: ${MIDTRANS_QRIS_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5080:8080"
+    volumes:
+      - hanora_uploads:/var/hanora/uploads
+      - hanora_keys:/var/hanora/keys
+      - hanora_apilogs:/app/logs
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://localhost:8080/api/v1/health/ready || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hanora-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:8080:80"
+
+volumes:
+  hanora_pgdata:
+  hanora_uploads:
+  hanora_keys:
+  hanora_apilogs:

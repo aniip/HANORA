@@ -1,0 +1,158 @@
+name: hanora-prod
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: hanora-prod-postgres
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: hanora-api:prod
+    container_name: hanora-prod-api
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Maximum Pool Size=20
+      Cors__AllowedOrigins__0: https://${DOMAIN}
+      Storage__UploadPath: /var/hanora/uploads
+      DataProtection__KeysPath: /var/hanora/keys
+      Jwt__Issuer: ${JWT_ISSUER:-hanora-api}
+      Jwt__Audience: ${JWT_AUDIENCE:-hanora-client}
+      Jwt__TableAudience: ${JWT_TABLE_AUDIENCE:-hanora-table}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      Jwt__AccessMinutes: ${JWT_ACCESS_MINUTES:-15}
+      Jwt__RefreshDays: ${REFRESH_TOKEN_DAYS:-7}
+      Jwt__TableSessionMinutes: ${TABLE_SESSION_MINUTES:-120}
+      App__BaseUrl: https://${DOMAIN}
+      Database__AutoMigrate: "false"
+      Database__Seed: "false"
+      Seed__OwnerEmail: ${SEED_OWNER_EMAIL:-}
+      Seed__OwnerPassword: ${SEED_OWNER_PASSWORD:-}
+      Midtrans__Mode: ${MIDTRANS_MODE:-production}
+      Midtrans__ServerKey: ${MIDTRANS_SERVER_KEY}
+      Midtrans__ClientKey: ${MIDTRANS_CLIENT_KEY}
+      Midtrans__MerchantId: ${MIDTRANS_MERCHANT_ID}
+      Midtrans__SnapUrl: ${MIDTRANS_SNAP_URL:-}
+      Midtrans__QrisEnabled: ${MIDTRANS_QRIS_ENABLED:-true}
+      RateLimiting__Enabled: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - uploads:/var/hanora/uploads
+      - keys:/var/hanora/keys
+      - logs:/app/logs
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://localhost:8080/api/v1/health/ready || exit 1",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: hanora-web:prod
+    container_name: hanora-prod-web
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: hanora-prod-caddy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_started
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata:
+    name: hanora_prod_pgdata
+  uploads:
+    name: hanora_prod_uploads
+  keys:
+    name: hanora_prod_keys
+  logs:
+    name: hanora_prod_logs
+  caddy_data:
+    name: hanora_prod_caddy_data
+  caddy_config:
+    name: hanora_prod_caddy_config

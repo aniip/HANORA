@@ -1,0 +1,2742 @@
+openapi: 3.1.0
+info:
+  title: HANORA CAFE API
+  version: 1.0.0
+  description: |
+    Kontrak REST untuk sistem HANORA CAFE.
+
+    Aturan utama:
+    - Harga, PB1, dan total selalu dihitung di server.
+    - Customer memesan sebagai guest melalui sesi QR meja.
+    - Staf memakai JWT; refresh token disimpan di cookie httpOnly.
+    - Webhook Midtrans diverifikasi dengan signature SHA-512.
+    - Semua nominal dalam rupiah.
+  contact:
+    name: HANORA CAFE
+servers:
+  - url: https://hanora.example.com/api/v1
+    description: Production (placeholder domain)
+  - url: http://localhost:5080/api/v1
+    description: Development lokal
+
+tags:
+  - name: Auth
+  - name: Publik
+  - name: Pemesanan
+  - name: Pembayaran
+  - name: Kasir
+  - name: Owner
+  - name: Sistem
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login staf (Owner/Kasir)
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login berhasil
+          headers:
+            Set-Cookie:
+              description: Refresh token httpOnly
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotasi access token memakai refresh cookie
+      operationId: refreshToken
+      security:
+        - refreshCookie: []
+      responses:
+        '200':
+          description: Token baru
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout dan cabut refresh token
+      operationId: logout
+      security:
+        - bearerAuth: []
+        - refreshCookie: []
+      responses:
+        '204':
+          description: Logout berhasil
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Profil pengguna yang sedang login
+      operationId: getMe
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Profil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Ganti password staf
+      description: Wajib jika mustChangePassword bernilai true. Mencabut refresh token lain.
+      operationId: changePassword
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Password berhasil diganti
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /public/site:
+    get:
+      tags: [Publik]
+      summary: Profil bisnis dan konten website publik
+      operationId: getPublicSite
+      security: []
+      responses:
+        '200':
+          description: Profil bisnis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicSite'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /public/categories:
+    get:
+      tags: [Publik]
+      summary: Kategori aktif
+      operationId: getPublicCategories
+      security: []
+      responses:
+        '200':
+          description: Daftar kategori
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /public/products:
+    get:
+      tags: [Publik]
+      summary: Produk yang tersedia
+      operationId: getPublicProducts
+      security: []
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Slug kategori
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 80
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Daftar produk
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedProducts'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /public/products/{slug}:
+    get:
+      tags: [Publik]
+      summary: Detail produk
+      operationId: getPublicProduct
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+      responses:
+        '200':
+          description: Detail produk
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /public/tables/{qrToken}:
+    get:
+      tags: [Publik]
+      summary: Validasi QR meja dan buat sesi meja
+      operationId: resolveTableQr
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/QrToken'
+      responses:
+        '200':
+          description: Sesi meja
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableSession'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /orders:
+    post:
+      tags: [Pemesanan]
+      summary: Buat pesanan dari sesi meja
+      description: |
+        Harga, subtotal, PB1, dan total dihitung ulang di server.
+        Header Idempotency-Key wajib dan harus unik per percobaan.
+      operationId: createOrder
+      security:
+        - tableSession: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Pesanan dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Produk tidak tersedia atau konflik idempotency
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+
+  /orders/track/{trackingToken}:
+    get:
+      tags: [Pemesanan]
+      summary: Lacak status pesanan customer
+      operationId: trackOrder
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TrackingToken'
+      responses:
+        '200':
+          description: Status pesanan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderTracking'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /orders/track/{trackingToken}/cancel:
+    post:
+      tags: [Pemesanan]
+      summary: Batalkan pesanan sebelum diproses
+      operationId: cancelOrder
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TrackingToken'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelOrderRequest'
+      responses:
+        '200':
+          description: Pesanan dibatalkan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderTracking'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /orders/track/{trackingToken}/payments/qris:
+    post:
+      tags: [Pembayaran]
+      summary: Ulangi pembayaran QRIS
+      description: Membuat payment attempt QRIS baru untuk pesanan yang belum dibayar.
+      operationId: retryQrisPayment
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TrackingToken'
+      responses:
+        '200':
+          description: Payment attempt baru
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentSummary'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+
+  /orders/track/{trackingToken}/simulate:
+    post:
+      tags: [Pembayaran]
+      summary: Simulasikan pembayaran QRIS
+      description: |
+        Hanya tersedia ketika Midtrans berjalan pada mode simulation.
+        Menandai payment QRIS lunas, order menjadi processing, dan income dibuat.
+      operationId: simulateQrisPayment
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TrackingToken'
+      responses:
+        '200':
+          description: Tracking pesanan setelah pembayaran disimulasikan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderTracking'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /webhooks/midtrans:
+    post:
+      tags: [Pembayaran]
+      summary: Webhook notifikasi Midtrans
+      description: |
+        Tanpa JWT. Keamanan berasal dari signature SHA-512:
+        SHA512(order_id + status_code + gross_amount + ServerKey).
+        Duplikat diabaikan berdasarkan notification_hash.
+      operationId: midtransWebhook
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MidtransNotification'
+      responses:
+        '200':
+          description: Diterima atau duplikat
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: ok
+        '401':
+          description: Signature tidak valid
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /cashier/orders:
+    get:
+      tags: [Kasir]
+      summary: Antrean pesanan
+      operationId: listCashierOrders
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Daftar pesanan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedCashierOrders'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /cashier/orders/{id}:
+    get:
+      tags: [Kasir]
+      summary: Detail pesanan
+      operationId: getCashierOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Detail pesanan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashierOrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /cashier/orders/{id}/status:
+    patch:
+      tags: [Kasir]
+      summary: Ubah status pesanan
+      operationId: updateCashierOrderStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderStatusRequest'
+      responses:
+        '200':
+          description: Status diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashierOrderDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /cashier/orders/{id}/confirm-cash:
+    post:
+      tags: [Kasir]
+      summary: Konfirmasi pembayaran tunai diterima
+      operationId: confirmCashPayment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmCashRequest'
+      responses:
+        '200':
+          description: Pembayaran dikonfirmasi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashierOrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /cashier/orders/{id}/cancel:
+    post:
+      tags: [Kasir]
+      summary: Batalkan pesanan dari sisi kasir
+      operationId: cancelCashierOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelCashierOrderRequest'
+      responses:
+        '200':
+          description: Pesanan dibatalkan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashierOrderDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /cashier/transactions:
+    get:
+      tags: [Kasir]
+      summary: Riwayat transaksi
+      operationId: listCashierTransactions
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - name: method
+          in: query
+          schema:
+            $ref: '#/components/schemas/PaymentMethod'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/PaymentStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Daftar transaksi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedTransactions'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/dashboard/summary:
+    get:
+      tags: [Owner]
+      summary: Ringkasan performa bisnis
+      operationId: getDashboardSummary
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: Ringkasan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/dashboard/sales-trend:
+    get:
+      tags: [Owner]
+      summary: Tren pendapatan
+      operationId: getSalesTrend
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - name: groupBy
+          in: query
+          schema:
+            type: string
+            enum: [day, month]
+            default: day
+      responses:
+        '200':
+          description: Titik data tren
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SalesTrendPoint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/dashboard/top-products:
+    get:
+      tags: [Owner]
+      summary: Produk terlaris
+      operationId: getTopProducts
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Produk terlaris
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TopProduct'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/dashboard/payment-methods:
+    get:
+      tags: [Owner]
+      summary: Komposisi metode pembayaran
+      operationId: getPaymentMethodBreakdown
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: Komposisi pembayaran
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PaymentMethodBreakdown'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/categories:
+    get:
+      tags: [Owner]
+      summary: Daftar kategori
+      operationId: listCategories
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Kategori
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Owner]
+      summary: Tambah kategori
+      operationId: createCategory
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+      responses:
+        '201':
+          description: Kategori dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/categories/{id}:
+    put:
+      tags: [Owner]
+      summary: Ubah kategori
+      operationId: updateCategory
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+      responses:
+        '200':
+          description: Kategori diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Owner]
+      summary: Hapus kategori
+      operationId: deleteCategory
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Kategori dihapus
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /owner/products:
+    get:
+      tags: [Owner]
+      summary: Daftar produk
+      operationId: listProducts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [available, unavailable, archived]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Daftar produk
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedProducts'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Owner]
+      summary: Tambah produk
+      operationId: createProduct
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductRequest'
+      responses:
+        '201':
+          description: Produk dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/products/{id}:
+    get:
+      tags: [Owner]
+      summary: Detail produk
+      operationId: getProduct
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Produk
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Owner]
+      summary: Ubah produk
+      operationId: updateProduct
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductRequest'
+      responses:
+        '200':
+          description: Produk diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Owner]
+      summary: Arsipkan produk
+      operationId: archiveProduct
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Produk diarsipkan
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /owner/products/{id}/availability:
+    patch:
+      tags: [Owner]
+      summary: Ubah ketersediaan produk
+      operationId: updateProductAvailability
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isAvailable]
+              properties:
+                isAvailable:
+                  type: boolean
+      responses:
+        '200':
+          description: Ketersediaan diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /owner/products/{id}/image:
+    post:
+      tags: [Owner]
+      summary: Upload gambar produk
+      operationId: uploadProductImage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Gambar tersimpan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /owner/tables:
+    get:
+      tags: [Owner]
+      summary: Daftar meja
+      operationId: listTables
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Daftar meja
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TableWithQr'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Owner]
+      summary: Tambah meja dan QR pertama
+      operationId: createTable
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TableRequest'
+      responses:
+        '201':
+          description: Meja dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableWithQr'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/tables/{id}:
+    put:
+      tags: [Owner]
+      summary: Ubah meja
+      operationId: updateTable
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TableRequest'
+      responses:
+        '200':
+          description: Meja diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableWithQr'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Owner]
+      summary: Hapus meja
+      operationId: deleteTable
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Meja dihapus
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /owner/tables/{id}/qr:
+    get:
+      tags: [Owner]
+      summary: Unduh QR meja
+      operationId: getTableQr
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [svg, png]
+            default: svg
+      responses:
+        '200':
+          description: Berkas QR
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /owner/tables/{id}/qr/regenerate:
+    post:
+      tags: [Owner]
+      summary: Cabut QR lama dan buat QR baru
+      operationId: regenerateTableQr
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: QR baru
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableWithQr'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /owner/expenses:
+    get:
+      tags: [Owner]
+      summary: Daftar pengeluaran
+      operationId: listExpenses
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Daftar pengeluaran
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedExpenses'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Owner]
+      summary: Catat pengeluaran
+      operationId: createExpense
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseRequest'
+      responses:
+        '201':
+          description: Pengeluaran dicatat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/expenses/{id}:
+    put:
+      tags: [Owner]
+      summary: Ubah pengeluaran
+      operationId: updateExpense
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseRequest'
+      responses:
+        '200':
+          description: Pengeluaran diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Owner]
+      summary: Hapus pengeluaran
+      operationId: deleteExpense
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Pengeluaran dihapus
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /owner/incomes:
+    get:
+      tags: [Owner]
+      summary: Daftar pemasukan
+      operationId: listIncomes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Daftar pemasukan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedIncomes'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Owner]
+      summary: Catat pemasukan manual
+      operationId: createIncome
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncomeRequest'
+      responses:
+        '201':
+          description: Pemasukan dicatat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Income'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/incomes/{id}:
+    delete:
+      tags: [Owner]
+      summary: Hapus pemasukan manual
+      description: Pemasukan yang berasal dari pesanan tidak dapat dihapus.
+      operationId: deleteIncome
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Pemasukan dihapus
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /owner/reports/data:
+    get:
+      tags: [Owner]
+      summary: Data laporan untuk ditampilkan
+      description: Ringkasan, transaksi lunas, dan pengeluaran pada periode.
+      operationId: getReportData
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: Data laporan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                  transactions:
+                    type: array
+                    items:
+                      type: object
+                  expenses:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/reports/export:
+    get:
+      tags: [Owner]
+      summary: Export laporan PDF/Excel
+      operationId: exportReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [pdf, xlsx]
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [summary, transactions, expenses, full]
+            default: full
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: Berkas laporan
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/users:
+    get:
+      tags: [Owner]
+      summary: Daftar user internal
+      operationId: listUsers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Daftar user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedUsers'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Owner]
+      summary: Buat user internal
+      operationId: createUser
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /owner/users/{id}:
+    put:
+      tags: [Owner]
+      summary: Ubah user internal
+      operationId: updateUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /owner/users/{id}/status:
+    patch:
+      tags: [Owner]
+      summary: Aktifkan/nonaktifkan user
+      operationId: updateUserStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isActive]
+              properties:
+                isActive:
+                  type: boolean
+      responses:
+        '200':
+          description: Status user diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /owner/settings:
+    get:
+      tags: [Owner]
+      summary: Pengaturan bisnis
+      operationId: getSettings
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pengaturan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags: [Owner]
+      summary: Ubah pengaturan bisnis
+      operationId: updateSettings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsRequest'
+      responses:
+        '200':
+          description: Pengaturan diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /owner/audit-logs:
+    get:
+      tags: [Owner]
+      summary: Audit log
+      operationId: listAuditLogs
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Audit log
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedAuditLogs'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /health:
+    get:
+      tags: [Sistem]
+      summary: Liveness check
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: Aplikasi hidup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /health/ready:
+    get:
+      tags: [Sistem]
+      summary: Readiness check
+      operationId: healthReady
+      security: []
+      responses:
+        '200':
+          description: Database dan storage siap
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+        '503':
+          description: Belum siap
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token staf (Owner/Kasir), berlaku 15 menit.
+    tableSession:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Sesi meja hasil scan QR, audience `table`, berlaku 2 jam.
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: hanora_refresh
+      description: Refresh token httpOnly, Secure, SameSite=Lax.
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Slug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+    QrToken:
+      name: qrToken
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{20,64}$'
+    TrackingToken:
+      name: trackingToken
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{20,64}$'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    FromDate:
+      name: from
+      in: query
+      schema:
+        type: string
+        format: date
+      description: Tanggal awal (WIB), format YYYY-MM-DD.
+    ToDate:
+      name: to
+      in: query
+      schema:
+        type: string
+        format: date
+      description: Tanggal akhir (WIB), inklusif.
+
+  responses:
+    BadRequest:
+      description: Permintaan tidak valid
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    Unauthorized:
+      description: Tidak terautentikasi
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    Forbidden:
+      description: Tidak berhak
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    NotFound:
+      description: Tidak ditemukan
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    Conflict:
+      description: Konflik status/data
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    TooManyRequests:
+      description: Terlalu banyak permintaan
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    InternalError:
+      description: Kesalahan server
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    BadGateway:
+      description: Layanan pembayaran tidak dapat dihubungi
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+  schemas:
+    ProblemDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        traceId:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 8
+          maxLength: 128
+        newPassword:
+          type: string
+          minLength: 12
+          maxLength: 128
+
+    LoginResponse:
+      type: object
+      required: [accessToken, expiresIn, user]
+      properties:
+        accessToken:
+          type: string
+        expiresIn:
+          type: integer
+          example: 900
+        user:
+          $ref: '#/components/schemas/UserProfile'
+
+    UserProfile:
+      type: object
+      required: [id, name, email, role, mustChangePassword]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [Owner, Cashier]
+        mustChangePassword:
+          type: boolean
+
+    PublicSite:
+      type: object
+      properties:
+        name:
+          type: string
+          example: HANORA CAFE
+        tagline:
+          type: string
+        description:
+          type: string
+        address:
+          type: string
+        phone:
+          type: string
+        instagram:
+          type: string
+        openingHours:
+          type: string
+        mapsUrl:
+          type: string
+        logoUrl:
+          type: string
+        heroImageUrl:
+          type: string
+        gallery:
+          type: array
+          items:
+            type: string
+
+    Category:
+      type: object
+      required: [id, name, slug, isActive]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        sortOrder:
+          type: integer
+        isActive:
+          type: boolean
+
+    CategoryRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        slug:
+          type: string
+          maxLength: 80
+        sortOrder:
+          type: integer
+          minimum: 0
+        isActive:
+          type: boolean
+          default: true
+
+    Product:
+      type: object
+      required: [id, name, slug, price, isAvailable, category]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+          format: double
+          example: 32000
+        imageUrl:
+          type: string
+        isAvailable:
+          type: boolean
+        category:
+          $ref: '#/components/schemas/Category'
+
+    ProductRequest:
+      type: object
+      required: [name, categoryId, price]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        categoryId:
+          type: string
+          format: uuid
+        description:
+          type: string
+          maxLength: 2000
+        price:
+          type: number
+          exclusiveMinimum: 0
+        isAvailable:
+          type: boolean
+          default: true
+
+    PagedProducts:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    TableInfo:
+      type: object
+      required: [number, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        number:
+          type: string
+          example: '01'
+        name:
+          type: string
+          example: Meja 01
+        capacity:
+          type: integer
+
+    TableSession:
+      type: object
+      required: [table, tableSessionToken, expiresIn]
+      properties:
+        table:
+          $ref: '#/components/schemas/TableInfo'
+        tableSessionToken:
+          type: string
+        expiresIn:
+          type: integer
+          example: 7200
+
+    TableWithQr:
+      allOf:
+        - $ref: '#/components/schemas/TableInfo'
+        - type: object
+          properties:
+            isActive:
+              type: boolean
+            qrUrl:
+              type: string
+              format: uri
+            qrCreatedAt:
+              type: string
+              format: date-time
+
+    TableRequest:
+      type: object
+      required: [number, name]
+      properties:
+        number:
+          type: string
+          minLength: 1
+          maxLength: 10
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        capacity:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 2
+        isActive:
+          type: boolean
+          default: true
+
+    CreateOrderRequest:
+      type: object
+      required: [customerName, paymentMethod, items]
+      properties:
+        customerName:
+          type: string
+          minLength: 2
+          maxLength: 80
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        notes:
+          type: string
+          maxLength: 500
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/CreateOrderItem'
+
+    CreateOrderItem:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+        notes:
+          type: string
+          maxLength: 255
+
+    OrderItem:
+      type: object
+      required: [productName, unitPrice, quantity, subtotal]
+      properties:
+        productName:
+          type: string
+        unitPrice:
+          type: number
+          example: 32000
+        quantity:
+          type: integer
+        subtotal:
+          type: number
+          example: 64000
+        notes:
+          type: string
+
+    PaymentSummary:
+      type: object
+      required: [method, provider, status]
+      properties:
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        provider:
+          $ref: '#/components/schemas/PaymentProvider'
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        snapToken:
+          type: string
+        redirectUrl:
+          type: string
+          description: URL absolut Midtrans atau path internal halaman simulasi.
+        simulation:
+          type: boolean
+          description: True jika pembayaran memakai mode simulation.
+        paidAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+
+    OrderResponse:
+      type: object
+      required: [orderNumber, status, customerName, table, items, subtotal, taxRate, taxAmount, discountAmount, total, trackingToken, payment, createdAt]
+      properties:
+        orderNumber:
+          type: string
+          example: HNR-20261107-0001
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        customerName:
+          type: string
+        table:
+          $ref: '#/components/schemas/TableInfo'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        subtotal:
+          type: number
+        taxRate:
+          type: number
+          example: 10
+        taxAmount:
+          type: number
+        discountAmount:
+          type: number
+        total:
+          type: number
+        trackingToken:
+          type: string
+        payment:
+          $ref: '#/components/schemas/PaymentSummary'
+        createdAt:
+          type: string
+          format: date-time
+
+    TrackingEvent:
+      type: object
+      required: [status, at]
+      properties:
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        at:
+          type: string
+          format: date-time
+        note:
+          type: string
+
+    OrderTracking:
+      type: object
+      required: [orderNumber, status, customerName, table, total, payment, timeline]
+      properties:
+        orderNumber:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        customerName:
+          type: string
+        table:
+          $ref: '#/components/schemas/TableInfo'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        subtotal:
+          type: number
+        taxRate:
+          type: number
+        taxAmount:
+          type: number
+        discountAmount:
+          type: number
+        total:
+          type: number
+        payment:
+          $ref: '#/components/schemas/PaymentSummary'
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrackingEvent'
+        createdAt:
+          type: string
+          format: date-time
+
+    CancelOrderRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 255
+
+    CashierOrderSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderNumber:
+          type: string
+        customerName:
+          type: string
+        table:
+          $ref: '#/components/schemas/TableInfo'
+        total:
+          type: number
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        paymentStatus:
+          $ref: '#/components/schemas/PaymentStatus'
+        itemCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    CashierOrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/CashierOrderSummary'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrderItem'
+            subtotal:
+              type: number
+            taxRate:
+              type: number
+            taxAmount:
+              type: number
+            discountAmount:
+              type: number
+            notes:
+              type: string
+            cashierName:
+              type: string
+            paidAt:
+              type: string
+              format: date-time
+            timeline:
+              type: array
+              items:
+                $ref: '#/components/schemas/TrackingEvent'
+
+    UpdateOrderStatusRequest:
+      type: object
+      required: [toStatus]
+      properties:
+        toStatus:
+          type: string
+          enum: [processing, ready, completed]
+        note:
+          type: string
+          maxLength: 255
+
+    ConfirmCashRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          maxLength: 255
+
+    CancelCashierOrderRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 255
+
+    TransactionSummary:
+      type: object
+      properties:
+        orderNumber:
+          type: string
+        customerName:
+          type: string
+        table:
+          $ref: '#/components/schemas/TableInfo'
+        total:
+          type: number
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        paidAt:
+          type: string
+          format: date-time
+
+    PagedCashierOrders:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CashierOrderSummary'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    PagedTransactions:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionSummary'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    DashboardSummary:
+      type: object
+      required: [from, to, totalRevenue, totalTransactions, activeOrders, totalExpenses, netProfit, averageOrderValue, qrisRevenue, cashRevenue]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        totalRevenue:
+          type: number
+        totalTransactions:
+          type: integer
+        activeOrders:
+          type: integer
+        totalExpenses:
+          type: number
+        netProfit:
+          type: number
+        averageOrderValue:
+          type: number
+        qrisRevenue:
+          type: number
+        cashRevenue:
+          type: number
+
+    SalesTrendPoint:
+      type: object
+      required: [period, revenue, transactions]
+      properties:
+        period:
+          type: string
+          example: '2026-11-07'
+        revenue:
+          type: number
+        transactions:
+          type: integer
+
+    TopProduct:
+      type: object
+      required: [productId, name, quantitySold, revenue]
+      properties:
+        productId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        quantitySold:
+          type: integer
+        revenue:
+          type: number
+
+    PaymentMethodBreakdown:
+      type: object
+      required: [method, revenue, transactions, percentage]
+      properties:
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        revenue:
+          type: number
+        transactions:
+          type: integer
+        percentage:
+          type: number
+
+    Expense:
+      type: object
+      required: [id, category, description, amount, occurredAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        category:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+        occurredAt:
+          type: string
+          format: date
+        note:
+          type: string
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ExpenseRequest:
+      type: object
+      required: [category, description, amount, occurredAt]
+      properties:
+        category:
+          type: string
+          enum: [Bahan baku, Operasional, Perlengkapan, SDM, Lainnya]
+        description:
+          type: string
+          minLength: 1
+          maxLength: 255
+        amount:
+          type: number
+          exclusiveMinimum: 0
+        occurredAt:
+          type: string
+          format: date
+        note:
+          type: string
+          maxLength: 500
+
+    PagedExpenses:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Expense'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    Income:
+      type: object
+      required: [id, source, description, amount, occurredAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source:
+          type: string
+          enum: [order, manual]
+        orderNumber:
+          type: string
+        description:
+          type: string
+        amount:
+          type: number
+        occurredAt:
+          type: string
+          format: date
+        createdAt:
+          type: string
+          format: date-time
+
+    IncomeRequest:
+      type: object
+      required: [description, amount, occurredAt]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 255
+        amount:
+          type: number
+          exclusiveMinimum: 0
+        occurredAt:
+          type: string
+          format: date
+        note:
+          type: string
+          maxLength: 500
+
+    PagedIncomes:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Income'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    OwnerUser:
+      type: object
+      required: [id, name, email, role, isActive]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [Owner, Cashier]
+        isActive:
+          type: boolean
+        mustChangePassword:
+          type: boolean
+        lastLoginAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateUserRequest:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+        role:
+          type: string
+          enum: [Owner, Cashier]
+
+    UpdateUserRequest:
+      type: object
+      required: [name, email, role]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        role:
+          type: string
+          enum: [Owner, Cashier]
+
+    PagedUsers:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OwnerUser'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    Settings:
+      type: object
+      required: [name, tagline, description, address, phone, instagram, openingHours, mapsUrl, logoUrl]
+      properties:
+        name:
+          type: string
+        tagline:
+          type: string
+        description:
+          type: string
+        address:
+          type: string
+        phone:
+          type: string
+        instagram:
+          type: string
+        openingHours:
+          type: string
+        mapsUrl:
+          type: string
+        logoUrl:
+          type: string
+
+    SettingsRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        tagline:
+          type: string
+          maxLength: 160
+        description:
+          type: string
+          maxLength: 1000
+        address:
+          type: string
+          maxLength: 255
+        phone:
+          type: string
+          maxLength: 30
+        instagram:
+          type: string
+          maxLength: 60
+        openingHours:
+          type: string
+          maxLength: 100
+        mapsUrl:
+          type: string
+          maxLength: 500
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        userName:
+          type: string
+        action:
+          type: string
+        entity:
+          type: string
+        entityId:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        ip:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    PagedAuditLogs:
+      type: object
+      required: [items, page, pageSize, totalItems, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+
+    MidtransNotification:
+      type: object
+      required: [transaction_status, status_code, signature_key, order_id, gross_amount]
+      properties:
+        transaction_time:
+          type: string
+        transaction_status:
+          type: string
+          enum: [capture, settlement, pending, deny, cancel, expire, failure, refund, partial_refund]
+        transaction_id:
+          type: string
+        status_message:
+          type: string
+        status_code:
+          type: string
+        signature_key:
+          type: string
+        payment_type:
+          type: string
+        order_id:
+          type: string
+        gross_amount:
+          type: string
+          example: '96800.00'
+        fraud_status:
+          type: string
+          enum: [accept, challenge, deny]
+        currency:
+          type: string
+
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    ReadyResponse:
+      type: object
+      required: [status, database, storage]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        database:
+          type: string
+          enum: [up, down]
+        storage:
+          type: string
+          enum: [writable, unavailable]
+
+    OrderStatus:
+      type: string
+      enum: [pending_payment, pending_confirmation, processing, ready, completed, cancelled]
+
+    PaymentStatus:
+      type: string
+      enum: [pending, paid, failed, expired, refunded, cancelled]
+
+    PaymentMethod:
+      type: string
+      enum: [qris, cash]
+
+    PaymentProvider:
+      type: string
+      enum: [midtrans, manual]

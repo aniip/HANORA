@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Hanora.Api/Hanora.Api.csproj" />
+    <Project Path="src/Hanora.Application/Hanora.Application.csproj" />
+    <Project Path="src/Hanora.Domain/Hanora.Domain.csproj" />
+    <Project Path="src/Hanora.Infrastructure/Hanora.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Hanora.IntegrationTests/Hanora.IntegrationTests.csproj" />
+    <Project Path="tests/Hanora.UnitTests/Hanora.UnitTests.csproj" />
+  </Folder>
+</Solution>

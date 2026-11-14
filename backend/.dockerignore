@@ -1,0 +1,9 @@
+bin/
+obj/
+**/bin/
+**/obj/
+logs/
+uploads/
+.vs/
+.vscode/
+*.user
