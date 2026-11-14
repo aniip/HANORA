@@ -33,7 +33,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-hanora};Username=${POSTGRES_USER:-hanora};Password=${POSTGRES_PASSWORD:-hanora_dev_password};Maximum Pool Size=20
+      # Isi DATABASE_CONNECTION_STRING untuk memakai Azure/external DB.
+      # Jika kosong, compose memakai PostgreSQL bawaan.
+      ConnectionStrings__Default: "${DATABASE_CONNECTION_STRING:-Host=postgres;Port=5432;Database=hanora;Username=hanora;Password=hanora_dev_password;Maximum Pool Size=20}"
       Cors__AllowedOrigins__0: ${APP_ORIGIN:-http://localhost:8080}
       Storage__UploadPath: /var/hanora/uploads
       Jwt__Issuer: ${JWT_ISSUER:-hanora-api}
@@ -84,8 +86,9 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    # Dibuka ke LAN agar HP bisa membuka web/QR. API tetap localhost.
     ports:
-      - "127.0.0.1:8080:80"
+      - "8080:80"
 
 volumes:
   hanora_pgdata:

@@ -20,6 +20,33 @@ docker-compose.prod.yml  Production (Caddy + API + web; PostgreSQL opsional)
 
 ## Menjalankan Development
 
+### Docker (paling cepat, satu repo)
+
+```bash
+cp .env.example .env
+# Untuk database Azure/external, ganti DATABASE_CONNECTION_STRING di .env.
+# Untuk PostgreSQL bawaan compose, biarkan default.
+docker compose up -d --build
+```
+
+Web: `http://localhost:8080`  
+API: `http://127.0.0.1:5080`
+
+Untuk akses dari HP, ubah `.env`:
+
+```env
+APP_BASE_URL=http://IP-LAN:8080
+APP_ORIGIN=http://IP-LAN:8080
+```
+
+lalu:
+
+```bash
+docker compose up -d api
+```
+
+dan unduh ulang QR dari `/owner/meja`.
+
 ### Backend
 
 ```bash
