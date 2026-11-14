@@ -13,7 +13,7 @@ deploy/                  Caddyfile untuk production
 docs/                    Dokumentasi arsitektur, API, keamanan, produksi
 scripts/                 Backup, restore, healthcheck
 docker-compose.yml       Development (PostgreSQL + API + web)
-docker-compose.prod.yml  Production (Caddy + API + web + PostgreSQL)
+docker-compose.prod.yml  Production (Caddy + API + web; PostgreSQL opsional)
 .env.example             Contoh environment development
 .env.production.example  Contoh environment production/staging
 ```
@@ -69,12 +69,29 @@ psql "host=... dbname=hanora user=... sslmode=require" \
 ```bash
 cp .env.production.example .env.production
 chmod 600 .env.production
-# isi DOMAIN, password DB, JWT_SIGNING_KEY, Midtrans, owner awal
+# isi DOMAIN, DATABASE_CONNECTION_STRING, DATABASE_BACKUP_URL,
+# JWT_SIGNING_KEY, Midtrans, owner awal
 
 docker compose --env-file .env.production -f docker-compose.prod.yml build
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d postgres
 docker compose --env-file .env.production -f docker-compose.prod.yml run --rm api --migrate --seed
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+```
+
+Untuk database Azure/external, isi `DATABASE_CONNECTION_STRING` (format Npgsql)
+dan `DATABASE_BACKUP_URL` (format libpq). Service `postgres` bawaan compose
+tidak akan dijalankan.
+
+Kalau ingin memakai PostgreSQL bawaan compose:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml \
+  --profile local-db up -d postgres
+
+docker compose --env-file .env.production -f docker-compose.prod.yml \
+  run --rm api --migrate --seed
+
+docker compose --env-file .env.production -f docker-compose.prod.yml \
+  --profile local-db up -d
 ```
 
 Caddy menangani HTTPS otomatis. Hanya port 80/443 yang perlu dibuka.

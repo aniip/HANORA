@@ -28,7 +28,11 @@ set -a
 source "$ENV_FILE"
 set +a
 
-echo "PERINGATAN: restore akan menimpa data $POSTGRES_DB."
+if [[ -n "${DATABASE_BACKUP_URL:-}" ]]; then
+  echo "PERINGATAN: restore akan menimpa database external (Azure/remote)."
+else
+  echo "PERINGATAN: restore akan menimpa database lokal compose $POSTGRES_DB."
+fi
 read -r -p "Ketik RESTORE untuk melanjutkan: " CONFIRM
 
 if [[ "$CONFIRM" != "RESTORE" ]]; then
@@ -37,11 +41,16 @@ if [[ "$CONFIRM" != "RESTORE" ]]; then
 fi
 
 echo "==> Restore database"
-gunzip -c "$DB_BACKUP" | docker compose \
-  --env-file "$ENV_FILE" \
-  -f "$COMPOSE_FILE" \
-  exec -T postgres \
-  psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+if [[ -n "${DATABASE_BACKUP_URL:-}" ]]; then
+  gunzip -c "$DB_BACKUP" | docker run --rm -i postgres:18-alpine \
+    psql "$DATABASE_BACKUP_URL" -v ON_ERROR_STOP=1
+else
+  gunzip -c "$DB_BACKUP" | docker compose \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+fi
 
 if [[ -n "$UPLOADS_BACKUP" ]]; then
   if [[ ! -f "$UPLOADS_BACKUP" ]]; then

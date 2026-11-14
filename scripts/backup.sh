@@ -23,16 +23,27 @@ mkdir -p "$BACKUP_DIR"
 DB_FILE="$BACKUP_DIR/hanora-db-$STAMP.sql.gz"
 UPLOADS_FILE="$BACKUP_DIR/hanora-uploads-$STAMP.tar.gz"
 
-echo "==> Backup database $POSTGRES_DB"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
-  pg_dump \
-    -U "$POSTGRES_USER" \
-    -d "$POSTGRES_DB" \
-    --no-owner \
-    --no-privileges \
-    --clean \
-    --if-exists \
-  | gzip > "$DB_FILE"
+if [[ -n "${DATABASE_BACKUP_URL:-}" ]]; then
+  echo "==> Backup database external (Azure/remote)"
+  docker run --rm postgres:18-alpine \
+    pg_dump "$DATABASE_BACKUP_URL" \
+      --no-owner \
+      --no-privileges \
+      --clean \
+      --if-exists \
+    | gzip > "$DB_FILE"
+else
+  echo "==> Backup database lokal compose $POSTGRES_DB"
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T postgres \
+    pg_dump \
+      -U "$POSTGRES_USER" \
+      -d "$POSTGRES_DB" \
+      --no-owner \
+      --no-privileges \
+      --clean \
+      --if-exists \
+    | gzip > "$DB_FILE"
+fi
 
 echo "==> Backup volume uploads"
 docker run --rm \

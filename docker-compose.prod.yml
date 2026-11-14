@@ -2,6 +2,9 @@ name: hanora-prod
 
 services:
   postgres:
+    # Opsional. Aktifkan dengan: --profile local-db
+    # Jika memakai database Azure/external, service ini tidak dijalankan.
+    profiles: ["local-db"]
     image: postgres:17-alpine
     container_name: hanora-prod-postgres
     restart: unless-stopped
@@ -43,7 +46,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Maximum Pool Size=20
+      # Isi DATABASE_CONNECTION_STRING di .env.production untuk memakai
+      # database Azure/external. Default di bawah hanya untuk --profile local-db.
+      ConnectionStrings__Default: "${DATABASE_CONNECTION_STRING:-Host=postgres;Port=5432;Database=hanora;Username=hanora;Password=hanora_dev_password;Maximum Pool Size=20}"
       Cors__AllowedOrigins__0: https://${DOMAIN}
       Storage__UploadPath: /var/hanora/uploads
       DataProtection__KeysPath: /var/hanora/keys
@@ -66,9 +71,6 @@ services:
       Midtrans__SnapUrl: ${MIDTRANS_SNAP_URL:-}
       Midtrans__QrisEnabled: ${MIDTRANS_QRIS_ENABLED:-true}
       RateLimiting__Enabled: "true"
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
       - uploads:/var/hanora/uploads
       - keys:/var/hanora/keys

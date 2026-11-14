@@ -128,21 +128,52 @@ Wajib diisi:
 
 ## 5. Build, Migrasi, dan Start
 
+### 5.1 Pilih database
+
+**Opsi A — Database Azure/external (disarankan):**
+
+Isi `.env.production`:
+
+```env
+DATABASE_CONNECTION_STRING=Host=devnity-postgre.postgres.database.azure.com;Port=5432;Database=Hanora;Username=devnitydb;Password=...;SSL Mode=Require;Maximum Pool Size=20
+DATABASE_BACKUP_URL=postgresql://devnitydb:...@devnity-postgre.postgres.database.azure.com:5432/Hanora?sslmode=require
+```
+
+- Service `postgres` bawaan compose **tidak** dijalankan.
+- API langsung konek ke Azure.
+- Jangan commit `.env.production`.
+
+**Opsi B — PostgreSQL bawaan compose:**
+
+Kosongkan `DATABASE_CONNECTION_STRING` dan jalankan profile `local-db`.
+
+### 5.2 Build dan start
+
 ```bash
 cd /opt/hanora-app
 
 # 1. Build image
 docker compose --env-file .env.production -f docker-compose.prod.yml build
 
-# 2. Nyalakan database
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d postgres
-
-# 3. Terapkan migration + seed awal (owner, role, pengaturan)
+# 2. Terapkan migration + seed awal (owner, role, pengaturan)
 docker compose --env-file .env.production -f docker-compose.prod.yml \
   run --rm api --migrate --seed
 
-# 4. Nyalakan seluruh stack
+# 3. Nyalakan API, web, dan Caddy
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+```
+
+Kalau memakai PostgreSQL bawaan compose, tambahkan profile:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml \
+  --profile local-db up -d postgres
+
+docker compose --env-file .env.production -f docker-compose.prod.yml \
+  run --rm api --migrate --seed
+
+docker compose --env-file .env.production -f docker-compose.prod.yml \
+  --profile local-db up -d
 ```
 
 Cek status:
@@ -234,12 +265,26 @@ Panduan lengkap: [MIDTRANS_SETUP.md](MIDTRANS_SETUP.md).
 
 ## 8. Backup
 
+Jika memakai database Azure/external, isi `DATABASE_BACKUP_URL` di
+`.env.production` dengan format **libpq** (bukan format Npgsql):
+
+```env
+DATABASE_BACKUP_URL=postgresql://devnitydb:PASSWORD@devnity-postgre.postgres.database.azure.com:5432/Hanora?sslmode=require
+```
+
+`DATABASE_CONNECTION_STRING` (format Npgsql) dipakai aplikasi, sedangkan
+`DATABASE_BACKUP_URL` dipakai `pg_dump`/`psql`.
+
 Backup manual:
 
 ```bash
 cd /opt/hanora-app
 bash scripts/backup.sh
 ```
+
+Kalau `DATABASE_BACKUP_URL` diisi, script memakai container `postgres:18-alpine`
+untuk `pg_dump` ke Azure. Kalau kosong, script memakai service `postgres`
+bawaan compose.
 
 Hasil di folder `backups/`:
 
